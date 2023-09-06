@@ -1,0 +1,13 @@
+[workspace.package]
+authors = ["Eli Wilson <eli@dreamhub.co>"]
+edition = "2021"
+license = "MIT"
+rust-version = "1.72.0"
+
+[workspace]
+members = [
+  "crates/*",
+]
+default-members = [
+  "crates/*",
+]
