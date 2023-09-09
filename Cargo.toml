@@ -5,6 +5,7 @@ license = "MIT"
 rust-version = "1.72.0"
 
 [workspace]
+resolver = "2"
 members = [
   "crates/*",
 ]
