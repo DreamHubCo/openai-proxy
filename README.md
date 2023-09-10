@@ -2,6 +2,12 @@
 
 Deploy a proxy in front of OpenAI API to allow your frontend to make requests without exposing your API key while enforcing rate limiting. Designed for speed and ease of deployment.
 
+## Features
+
+- [x] JWT authentication
+- [ ] Chat streaming
+- [ ] Per user rate limiting
+
 ## Run the example
 
 1. Start the proxy
