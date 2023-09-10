@@ -6,7 +6,7 @@ use poem::{
     handler,
     http::StatusCode,
     listener::TcpListener,
-    middleware::{Cors, Tracing},
+    middleware::{CatchPanic, Cors, Tracing},
     post,
     web::{
         sse::{Event, SSE},
@@ -125,6 +125,7 @@ async fn main() -> anyhow::Result<()> {
         .at("/chat/completions", post(chat_completion))
         .with(cors)
         .with(Tracing::default())
+        .with(CatchPanic::new())
         .data(data);
 
     Server::new(TcpListener::bind(settings.bind_addr()))
