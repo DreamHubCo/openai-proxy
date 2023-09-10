@@ -1,5 +1,7 @@
 use poem_openapi::Object;
 
+use crate::settings::Settings;
+
 #[derive(Debug, Object, Clone, Eq, PartialEq)]
 struct ChatCompletionMessage {
     content: String,
@@ -26,6 +28,15 @@ impl From<ChatCompletionMessage> for openai_api_rust::Message {
 pub struct ChatCompletionRequest {
     messages: Vec<ChatCompletionMessage>,
     model: String,
+}
+
+impl ChatCompletionRequest {
+    pub fn validate(&self, settings: &Settings) -> anyhow::Result<()> {
+        if !settings.allowed_models.is_empty() && !settings.allowed_models.contains(&self.model) {
+            return Err(anyhow::anyhow!("Model {} is not allowed", self.model));
+        }
+        Ok(())
+    }
 }
 
 /// Allow converting ChatCompletionRequest into ChatBody

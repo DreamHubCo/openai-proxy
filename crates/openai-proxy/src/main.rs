@@ -23,6 +23,7 @@ enum ChatCompletionResponse {
 #[derive(Clone, Debug)]
 struct AppData {
     openai: OpenAI,
+    settings: Settings,
 }
 
 struct Api;
@@ -35,6 +36,8 @@ impl Api {
         req: Json<ChatCompletionRequest>,
         data: Data<&AppData>,
     ) -> Result<ChatCompletionResponse> {
+        req.0.validate(&data.0.settings)?;
+
         let body: ChatBody = req.0.into();
         let completion = data
             .0
@@ -56,7 +59,10 @@ async fn main() -> anyhow::Result<()> {
 
     let auth = Auth::new(&settings.openai_api_key);
     let openai = OpenAI::new(auth, "https://api.openai.com/v1/");
-    let data = AppData { openai };
+    let data = AppData {
+        openai,
+        settings: settings.clone(),
+    };
 
     let api_service =
         OpenApiService::new(Api, "OpenAI Proxy", "1.0").server(settings.public_url.clone());
