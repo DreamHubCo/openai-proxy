@@ -21,6 +21,9 @@ pub struct Settings {
     /// The OpenAI organization ID. Optional.
     #[serde(default)]
     pub openai_org_id: Option<String>,
+
+    /// The secret to use for HS256 JWT validation. Required.
+    pub hs256_secret: String,
 }
 
 impl Settings {

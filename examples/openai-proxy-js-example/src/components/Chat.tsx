@@ -4,7 +4,7 @@ import "@/styles/chat.css";
 import { useState } from "react";
 
 const openai = new OpenAI({
-  apiKey: "todo",
+  apiKey: "<your JWT here>",
   baseURL: "http://localhost:4000/",
   dangerouslyAllowBrowser: true,
 });
