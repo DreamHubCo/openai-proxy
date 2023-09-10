@@ -33,9 +33,11 @@ impl<'a> FromRequest<'a> for User {
             .ok_or_else(|| {
                 poem::Error::from_string("missing Authorization header", StatusCode::UNAUTHORIZED)
             })?;
+        let token = token.strip_prefix("Bearer ").ok_or_else(|| {
+            poem::Error::from_string("invalid Authorization header", StatusCode::UNAUTHORIZED)
+        })?;
 
-        // req.data is None???
-        let settings = req.data::<Data<AppData>>().unwrap().settings.clone();
+        let settings = req.data::<AppData>().unwrap().settings.clone();
         let result = decode::<User>(
             token,
             &DecodingKey::from_secret(settings.hs256_secret.as_ref()),
