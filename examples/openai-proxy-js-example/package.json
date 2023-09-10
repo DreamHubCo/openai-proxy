@@ -23,6 +23,7 @@
     "typescript": "5.2.2"
   },
   "devDependencies": {
+    "encoding": "^0.1.13",
     "prettier": "^3.0.3"
   }
 }
