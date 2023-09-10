@@ -1,17 +1,18 @@
 use async_openai::{config::OpenAIConfig, Client};
-use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
-use openai_proxy::{
-    conversion::{ChatCompletion, ChatCompletionRequest},
-    settings::Settings,
-};
+use futures::StreamExt;
+use jsonwebtoken::{decode, DecodingKey, Validation};
+use openai_proxy::settings::Settings;
 use poem::{
+    handler,
+    http::StatusCode,
     listener::TcpListener,
     middleware::{Cors, Tracing},
-    web::Data,
-    EndpointExt, Request, Result, Route, Server,
-};
-use poem_openapi::{
-    auth::Bearer, payload::Json, ApiResponse, OpenApi, OpenApiService, SecurityScheme,
+    post,
+    web::{
+        sse::{Event, SSE},
+        Data,
+    },
+    EndpointExt, FromRequest, IntoResponse, Request, RequestBody, Response, Result, Route, Server,
 };
 use serde::{Deserialize, Serialize};
 
@@ -22,38 +23,32 @@ struct User {
     sub: String,
 }
 
-#[derive(SecurityScheme)]
-#[oai(
-    ty = "bearer",
-    key_name = "Authorization",
-    key_in = "header",
-    checker = "JWTAuth::check"
-)]
-struct JWTAuth(User);
+#[poem::async_trait]
+impl<'a> FromRequest<'a> for User {
+    async fn from_request(req: &'a Request, _body: &mut RequestBody) -> Result<Self> {
+        let token = req
+            .headers()
+            .get("Authorization")
+            .and_then(|value| value.to_str().ok())
+            .ok_or_else(|| {
+                poem::Error::from_string("missing Authorization header", StatusCode::UNAUTHORIZED)
+            })?;
 
-impl JWTAuth {
-    pub async fn check(req: &Request, bearer: Bearer) -> Option<User> {
-        let hs256_secret = req.data::<AppData>().unwrap().settings.hs256_secret.clone();
-        let token_message = decode::<User>(
-            &bearer.token,
-            &DecodingKey::from_secret(hs256_secret.as_ref()),
-            &Validation::new(Algorithm::HS256),
-        );
-
-        match token_message {
-            Ok(token) => Some(token.claims),
-            Err(e) => {
-                eprintln!("Failed to decode JWT: {}", e);
-                None
-            }
-        }
+        // req.data is None???
+        let settings = req.data::<Data<AppData>>().unwrap().settings.clone();
+        let result = decode::<User>(
+            token,
+            &DecodingKey::from_secret(settings.hs256_secret.as_ref()),
+            &Validation::new(jsonwebtoken::Algorithm::HS256),
+        )
+        .map_err(|e| {
+            poem::Error::from_string(
+                format!("failed to decode JWT: {}", e),
+                StatusCode::UNAUTHORIZED,
+            )
+        })?;
+        Ok(result.claims)
     }
-}
-
-#[derive(ApiResponse)]
-enum ChatCompletionResponse {
-    #[oai(status = 200)]
-    Success(Json<ChatCompletion>),
 }
 
 #[derive(Clone, Debug)]
@@ -62,31 +57,49 @@ struct AppData {
     settings: Settings,
 }
 
-struct Api;
-
-#[OpenApi]
-impl Api {
-    #[oai(path = "/chat/completions", method = "post")]
-    async fn chat_completion(
-        &self,
-        req: Json<ChatCompletionRequest>,
-        data: Data<&AppData>,
-        auth: JWTAuth,
-    ) -> Result<ChatCompletionResponse> {
-        req.0.validate(&data.0.settings)?;
-
-        let mut chat_req: async_openai::types::CreateChatCompletionRequest = req.0.into();
-        chat_req.user = Some(auth.0.sub);
-        let completion = data
-            .0
-            .openai
-            .chat()
-            .create(chat_req)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to create chat completion: {}", e))?;
-
-        Ok(ChatCompletionResponse::Success(Json(completion.into())))
+#[handler]
+async fn chat_completion(
+    req: poem::web::Json<async_openai::types::CreateChatCompletionRequest>,
+    data: Data<&AppData>,
+    user: User,
+) -> Result<Response> {
+    if !data.settings.allowed_models.is_empty()
+        && !data.settings.allowed_models.contains(&req.0.model)
+    {
+        return Ok(Response::builder()
+            .status(StatusCode::UNAUTHORIZED)
+            .body("Model not allowed".to_string()));
     }
+
+    let mut chat_req = req.0.clone();
+    chat_req.user = Some(user.sub);
+
+    if chat_req.stream.unwrap_or(false) {
+        let openai_client = data.0.openai.clone();
+        let stream = SSE::new(async_stream::stream! {
+            let mut stream = openai_client.chat().create_stream(req.0.into()).await.unwrap();
+            while let Some(result) = stream.next().await {
+                match result {
+                    Ok(completion) => yield Event::message(serde_json::to_string(&completion).unwrap()),
+                    Err(e) => {
+                        eprintln!("Failed to get chat completion: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
+        return Ok(stream.into_response());
+    }
+
+    let completion = data
+        .0
+        .openai
+        .chat()
+        .create(chat_req)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to create chat completion: {}", e))?;
+
+    Ok(poem::web::Json(completion).into_response())
 }
 
 #[tokio::main]
@@ -107,11 +120,9 @@ async fn main() -> anyhow::Result<()> {
         settings: settings.clone(),
     };
 
-    let api_service =
-        OpenApiService::new(Api, "OpenAI Proxy", "1.0").server(settings.public_url.clone());
     let cors = Cors::new().allow_origin(settings.cors_host.clone());
     let app = Route::new()
-        .nest("/", api_service)
+        .at("/chat/completions", post(chat_completion))
         .with(cors)
         .with(Tracing::default())
         .data(data);

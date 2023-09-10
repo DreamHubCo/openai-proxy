@@ -97,23 +97,50 @@ export default function Chat() {
     setMessages(newMessages);
 
     try {
-      const { choices } = await openai.chat.completions.create({
+      const stream = await openai.chat.completions.create({
         messages: newMessages.map((message) => ({
           role: messageTypeToOpenAI(message.type),
           content: message.text,
         })),
         model: "gpt-3.5-turbo-0613",
-        // todo: use streaming...
-        // stream: true,
+        stream: true,
       });
-      const assistantMessage = choices[0].message.content!;
-      setMessages([
-        ...newMessages,
-        {
-          type: ChatMessageType.Assistant,
-          text: assistantMessage,
-        },
-      ]);
+
+      let pendingMessage = "";
+      for await (const { choices } of stream) {
+        const nextPart = choices[0]?.delta?.content || "";
+        if (nextPart) {
+          pendingMessage += nextPart;
+          if (choices[0]?.index === 0) {
+            setMessages([
+              ...newMessages,
+              {
+                type: ChatMessageType.Assistant,
+                text: pendingMessage,
+              },
+            ]);
+          } else {
+            // update last message in array
+            setMessages([
+              ...newMessages.slice(0, -1),
+              {
+                type: ChatMessageType.Assistant,
+                text: pendingMessage,
+              },
+            ]);
+          }
+        }
+      }
+
+      // when `stream: false`
+      // const assistantMessage = choices[0].message.content!;
+      // setMessages([
+      //   ...newMessages,
+      //   {
+      //     type: ChatMessageType.Assistant,
+      //     text: assistantMessage,
+      //   },
+      // ]);
     } catch (e) {
       console.error(e);
     } finally {

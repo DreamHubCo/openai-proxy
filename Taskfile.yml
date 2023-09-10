@@ -6,6 +6,7 @@ tasks:
   fmt:
     cmds:
       - cargo +nightly fmt --all
+      - cd examples/openai-proxy-js-example && npm run format
 
   check:
     cmds:
