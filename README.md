@@ -5,7 +5,7 @@ Deploy a proxy in front of OpenAI API to allow your frontend to make requests wi
 ## Features
 
 - [x] JWT authentication
-- [ ] Chat streaming
+- [x] Chat streaming
 - [ ] Per user rate limiting
 
 ## Run the example
