@@ -2,20 +2,24 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct Settings {
-    /// The port to bind the http server to. Defaults to 3000.
+    /// The port to bind the http server to. Defaults to 4000.
     #[serde(default = "Settings::default_port")]
     pub port: u16,
-    /// The public url of the server. Defaults to http://localhost:3000.
+    /// The public url of the server. Defaults to http://localhost:4000.
     #[serde(default = "Settings::default_public_url")]
     pub public_url: String,
     /// The OpenAI API key. Required.
     pub openai_api_key: String,
+    /// The host to allow for CORS. Defaults to localhost:3000.
+    /// Set to "*" to allow all hosts.
+    #[serde(default = "Settings::default_cors_host")]
+    pub cors_host: String,
 }
 
 impl Settings {
     pub fn new() -> anyhow::Result<Self> {
         let settings = config::Config::builder()
-            .add_source(config::Environment::with_prefix("OPENAI_PROXY").separator("_"))
+            .add_source(config::Environment::default())
             .build()?
             .try_deserialize()?;
         Ok(settings)
@@ -27,10 +31,14 @@ impl Settings {
     }
 
     fn default_port() -> u16 {
-        3000
+        4000
     }
 
     fn default_public_url() -> String {
         format!("http://localhost:{}", Self::default_port())
+    }
+
+    fn default_cors_host() -> String {
+        "http://localhost:3000".to_string()
     }
 }
