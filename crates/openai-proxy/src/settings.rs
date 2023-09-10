@@ -18,6 +18,9 @@ pub struct Settings {
     /// The models to allow for chat completions. Defaults to all models with an empty list.
     #[serde(default)]
     pub allowed_models: Vec<String>,
+    /// The OpenAI organization ID. Optional.
+    #[serde(default)]
+    pub openai_org_id: Option<String>,
 }
 
 impl Settings {

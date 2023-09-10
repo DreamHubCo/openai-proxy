@@ -9,18 +9,18 @@ struct ChatCompletionMessage {
 }
 
 /// Allow converting ChatCompletionMessage into Message
-impl From<ChatCompletionMessage> for openai_api_rust::Message {
+impl From<ChatCompletionMessage> for async_openai::types::ChatCompletionRequestMessage {
     fn from(msg: ChatCompletionMessage) -> Self {
-        let role = match msg.role.as_str() {
-            "user" => openai_api_rust::Role::User,
-            "assistant" => openai_api_rust::Role::Assistant,
-            "system" => openai_api_rust::Role::System,
-            _ => panic!("Invalid role"),
-        };
-        openai_api_rust::Message {
-            content: msg.content,
-            role,
-        }
+        async_openai::types::ChatCompletionRequestMessageArgs::default()
+            .content(msg.content)
+            .role(match msg.role.as_str() {
+                "user" => async_openai::types::Role::User,
+                "assistant" => async_openai::types::Role::Assistant,
+                "system" => async_openai::types::Role::System,
+                _ => panic!("Invalid role {}", msg.role),
+            })
+            .build()
+            .unwrap()
     }
 }
 
@@ -40,35 +40,31 @@ impl ChatCompletionRequest {
 }
 
 /// Allow converting ChatCompletionRequest into ChatBody
-impl From<ChatCompletionRequest> for openai_api_rust::chat::ChatBody {
+impl From<ChatCompletionRequest> for async_openai::types::CreateChatCompletionRequest {
     fn from(req: ChatCompletionRequest) -> Self {
-        openai_api_rust::chat::ChatBody {
-            model: req.model,
-            max_tokens: None,
-            temperature: None,
-            top_p: None,
-            n: None,
-            stream: None,
-            stop: None,
-            presence_penalty: None,
-            frequency_penalty: None,
-            logit_bias: None,
-            user: None,
-            messages: req.messages.into_iter().map(|m| m.into()).collect(),
-        }
+        async_openai::types::CreateChatCompletionRequestArgs::default()
+            .model(req.model)
+            .messages(
+                req.messages
+                    .into_iter()
+                    .map(|m| m.into())
+                    .collect::<Vec<async_openai::types::ChatCompletionRequestMessage>>(),
+            )
+            .build()
+            .unwrap()
     }
 }
 
 #[derive(Debug, Object, Clone, Eq, PartialEq)]
 struct ChatCompletionUsage {
-    prompt_tokens: Option<u32>,
-    completion_tokens: Option<u32>,
-    total_tokens: Option<u32>,
+    prompt_tokens: u32,
+    completion_tokens: u32,
+    total_tokens: u32,
 }
 
 /// Allow converting Usage into ChatCompletionUsage
-impl From<openai_api_rust::Usage> for ChatCompletionUsage {
-    fn from(usage: openai_api_rust::Usage) -> Self {
+impl From<async_openai::types::Usage> for ChatCompletionUsage {
+    fn from(usage: async_openai::types::Usage) -> Self {
         ChatCompletionUsage {
             prompt_tokens: usage.prompt_tokens,
             completion_tokens: usage.completion_tokens,
@@ -79,19 +75,20 @@ impl From<openai_api_rust::Usage> for ChatCompletionUsage {
 
 #[derive(Debug, Object, Clone, Eq, PartialEq)]
 struct ChatCompletionChoiceMessage {
-    content: String,
+    content: Option<String>,
     role: String,
 }
 
 /// Allow converting Message into ChatCompletionChoiceMessage
-impl From<openai_api_rust::Message> for ChatCompletionChoiceMessage {
-    fn from(msg: openai_api_rust::Message) -> Self {
+impl From<async_openai::types::ChatCompletionResponseMessage> for ChatCompletionChoiceMessage {
+    fn from(msg: async_openai::types::ChatCompletionResponseMessage) -> Self {
         ChatCompletionChoiceMessage {
             content: msg.content,
             role: match msg.role {
-                openai_api_rust::Role::User => "user",
-                openai_api_rust::Role::Assistant => "assistant",
-                openai_api_rust::Role::System => "system",
+                async_openai::types::Role::User => "user",
+                async_openai::types::Role::Assistant => "assistant",
+                async_openai::types::Role::System => "system",
+                async_openai::types::Role::Function => "function",
             }
             .to_string(),
         }
@@ -100,46 +97,46 @@ impl From<openai_api_rust::Message> for ChatCompletionChoiceMessage {
 
 #[derive(Debug, Object, Clone, Eq, PartialEq)]
 struct ChatCompletionChoice {
-    text: Option<String>,
     index: u32,
-    logprobs: Option<String>,
     finish_reason: Option<String>,
-    message: Option<ChatCompletionChoiceMessage>,
+    message: ChatCompletionChoiceMessage,
 }
 
 /// Allow converting Choice into ChatCompletionChoice
-impl From<openai_api_rust::Choice> for ChatCompletionChoice {
-    fn from(choice: openai_api_rust::Choice) -> Self {
+impl From<async_openai::types::ChatChoice> for ChatCompletionChoice {
+    fn from(choice: async_openai::types::ChatChoice) -> Self {
         ChatCompletionChoice {
-            text: choice.text,
             index: choice.index,
-            logprobs: choice.logprobs,
             finish_reason: choice.finish_reason,
-            message: choice.message.map(|m| m.into()),
+            message: choice.message.into(),
         }
     }
 }
 
 #[derive(Debug, Object, Clone, Eq, PartialEq)]
 pub struct ChatCompletion {
-    id: Option<String>,
-    object: Option<String>,
-    created: u64,
-    model: Option<String>,
+    id: String,
+    object: String,
+    created: u32,
+    model: String,
+    usage: Option<ChatCompletionUsage>,
     choices: Vec<ChatCompletionChoice>,
-    usage: ChatCompletionUsage,
 }
 
 /// Allow converting Completion into ChatCompletion
-impl From<openai_api_rust::completions::Completion> for ChatCompletion {
-    fn from(completion: openai_api_rust::completions::Completion) -> Self {
+impl From<async_openai::types::CreateChatCompletionResponse> for ChatCompletion {
+    fn from(completion: async_openai::types::CreateChatCompletionResponse) -> Self {
         ChatCompletion {
             id: completion.id,
             object: completion.object,
             created: completion.created,
             model: completion.model,
-            choices: completion.choices.into_iter().map(|c| c.into()).collect(),
-            usage: completion.usage.into(),
+            choices: completion
+                .choices
+                .into_iter()
+                .map(|c| c.into())
+                .collect::<Vec<ChatCompletionChoice>>(),
+            usage: completion.usage.map(|u| u.into()),
         }
     }
 }

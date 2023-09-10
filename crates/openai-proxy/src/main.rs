@@ -1,7 +1,4 @@
-use openai_api_rust::{
-    chat::{ChatApi, ChatBody},
-    Auth, OpenAI,
-};
+use async_openai::{config::OpenAIConfig, Client};
 use openai_proxy::{
     conversion::{ChatCompletion, ChatCompletionRequest},
     settings::Settings,
@@ -22,7 +19,7 @@ enum ChatCompletionResponse {
 
 #[derive(Clone, Debug)]
 struct AppData {
-    openai: OpenAI,
+    openai: Client<OpenAIConfig>,
     settings: Settings,
 }
 
@@ -38,12 +35,13 @@ impl Api {
     ) -> Result<ChatCompletionResponse> {
         req.0.validate(&data.0.settings)?;
 
-        let body: ChatBody = req.0.into();
         let completion = data
             .0
             .openai
-            .chat_completion_create(&body)
-            .map_err(|e| anyhow::anyhow!(e))?;
+            .chat()
+            .create(req.0.into())
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to create chat completion: {}", e))?;
 
         Ok(ChatCompletionResponse::Success(Json(completion.into())))
     }
@@ -57,8 +55,11 @@ async fn main() -> anyhow::Result<()> {
     }
     tracing_subscriber::fmt::init();
 
-    let auth = Auth::new(&settings.openai_api_key);
-    let openai = OpenAI::new(auth, "https://api.openai.com/v1/");
+    let mut openai_config = OpenAIConfig::new().with_api_key(settings.openai_api_key.clone());
+    if let Some(org_id) = settings.openai_org_id.clone() {
+        openai_config = openai_config.with_org_id(org_id);
+    }
+    let openai = Client::with_config(openai_config);
     let data = AppData {
         openai,
         settings: settings.clone(),
