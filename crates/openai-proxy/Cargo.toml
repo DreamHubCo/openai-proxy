@@ -21,3 +21,4 @@ async-openai = "0.14"
 jsonwebtoken = "8"
 async-stream = "0.3"
 futures = "0.3"
+redis = {version = "0.23", features = ["aio", "tokio-comp"]}

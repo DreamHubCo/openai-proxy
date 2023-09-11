@@ -24,12 +24,26 @@ pub struct Settings {
 
     /// The secret to use for HS256 JWT validation. Required.
     pub hs256_secret: String,
+
+    /// The rate limit settings. Optional.
+    /// When not set, rate limiting is disabled.
+    pub rate_limit: Option<RateLimitSettings>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct RateLimitSettings {
+    /// The number of requests allowed in the timeframe.
+    pub limit: usize,
+    /// How often the sliding window resets, in seconds.
+    pub timeframe_seconds: usize,
+    /// The redis URL to use for rate limiting.
+    pub redis_url: String,
 }
 
 impl Settings {
     pub fn new() -> anyhow::Result<Self> {
         let settings = config::Config::builder()
-            .add_source(config::Environment::default())
+            .add_source(config::Environment::default().separator("_"))
             .build()?
             .try_deserialize()?;
         Ok(settings)

@@ -1,7 +1,6 @@
 use async_openai::{config::OpenAIConfig, Client};
 use futures::StreamExt;
-use jsonwebtoken::{decode, DecodingKey, Validation};
-use openai_proxy::settings::Settings;
+use openai_proxy::{data::AppData, limiter::Limiter, middleware, settings::Settings, user::User};
 use poem::{
     handler,
     http::StatusCode,
@@ -12,52 +11,8 @@ use poem::{
         sse::{Event, SSE},
         Data,
     },
-    EndpointExt, FromRequest, IntoResponse, Request, RequestBody, Response, Result, Route, Server,
+    EndpointExt, FromRequest, IntoResponse, Response, Result, Route, Server,
 };
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Serialize, Deserialize)]
-struct User {
-    /// The user's ID as parsed from their JWT.
-    /// This will be sent to OpenAI as the user ID.
-    sub: String,
-}
-
-#[poem::async_trait]
-impl<'a> FromRequest<'a> for User {
-    async fn from_request(req: &'a Request, _body: &mut RequestBody) -> Result<Self> {
-        let token = req
-            .headers()
-            .get("Authorization")
-            .and_then(|value| value.to_str().ok())
-            .ok_or_else(|| {
-                poem::Error::from_string("missing Authorization header", StatusCode::UNAUTHORIZED)
-            })?;
-        let token = token.strip_prefix("Bearer ").ok_or_else(|| {
-            poem::Error::from_string("invalid Authorization header", StatusCode::UNAUTHORIZED)
-        })?;
-
-        let settings = req.data::<AppData>().unwrap().settings.clone();
-        let result = decode::<User>(
-            token,
-            &DecodingKey::from_secret(settings.hs256_secret.as_ref()),
-            &Validation::new(jsonwebtoken::Algorithm::HS256),
-        )
-        .map_err(|e| {
-            poem::Error::from_string(
-                format!("failed to decode JWT: {}", e),
-                StatusCode::UNAUTHORIZED,
-            )
-        })?;
-        Ok(result.claims)
-    }
-}
-
-#[derive(Clone, Debug)]
-struct AppData {
-    openai: Client<OpenAIConfig>,
-    settings: Settings,
-}
 
 #[handler]
 async fn chat_completion(
@@ -117,18 +72,27 @@ async fn main() -> anyhow::Result<()> {
         openai_config = openai_config.with_org_id(org_id);
     }
     let openai = Client::with_config(openai_config);
+    let limiter = match settings.rate_limit {
+        Some(settings) => Some(Limiter::new(&settings).await?),
+        None => None,
+    };
     let data = AppData {
         openai,
         settings: settings.clone(),
+        limiter,
     };
 
     let cors = Cors::new().allow_origin(settings.cors_host.clone());
-    let app = Route::new()
+    let mut app = Route::new()
         .at("/chat/completions", post(chat_completion))
         .with(cors)
         .with(Tracing::default())
         .with(CatchPanic::new())
+        .with(User::middleware)
         .data(data);
+    if settings.rate_limit.is_some() {
+        app = app.with(middleware::rate_limit);
+    }
 
     Server::new(TcpListener::bind(settings.bind_addr()))
         .run(app)
